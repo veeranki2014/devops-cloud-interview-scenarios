@@ -32,7 +32,7 @@ const DOMAINS = [
     emoji: '🏗️',
     title: 'Terraform',
     desc: 'State management, modules, locking, imports, best practices',
-    count: 80,
+    count: 100,
     color: '#7b42bc',
     file: 'terraform/scenarios.md'
   },
