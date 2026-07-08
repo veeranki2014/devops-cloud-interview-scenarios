@@ -41,7 +41,7 @@ const DOMAINS = [
     emoji: '🐳',
     title: 'Docker',
     desc: 'Images, containers, networking, multi-stage builds, security',
-    count: 80,
+    count: 100,
     color: '#2496ed',
     file: 'docker/scenarios.md'
   },

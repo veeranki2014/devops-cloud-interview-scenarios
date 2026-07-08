@@ -426,4 +426,367 @@ You cannot run a Windows `.exe` heavily inside a Linux container because the `.e
 
 ---
 
+**Q81. [L3] You are running a sidecar monitoring agent alongside your main application container using Docker Compose. The agent needs to see all the processes running inside the main application container using `ps aux`. By default, it can only see its own processes. How do you solve this?**
+
+> *What the interviewer is testing:* PID namespace sharing between containers.
+
+**Answer:**
+By default, every Docker container gets its own isolated PID namespace, meaning each container can only see its own processes (its PID 1 and descendants).
+To allow the monitoring sidecar to observe the main application's processes, you must share the PID namespace between the two containers using the `pid` option:
+```yaml
+services:
+  app:
+    image: myapp
+    container_name: main-app
+
+  monitor:
+    image: monitoring-agent
+    pid: "service:app"
+```
+With `pid: "service:app"`, the monitor container joins the PID namespace of the `app` container and can see all of its processes via `ps aux` or `/proc`. In plain Docker CLI: `docker run --pid=container:main-app monitoring-agent`.
+
+---
+
+**Q82. [L2] A developer runs a containerized application that writes millions of tiny temporary cache files during processing. After a few hours, the container crashes with "No space left on device" even though `docker stats` shows plenty of disk available. What is happening?**
+
+> *What the interviewer is testing:* tmpfs mounts, inode exhaustion vs. disk space.
+
+**Answer:**
+The container is likely running out of **inodes**, not disk space. The overlay2 filesystem has a finite number of inodes, and millions of small files can exhaust the inode table before consuming significant disk bytes. `df -i` inside the container will confirm this.
+*Fix:* For temporary cache files that don't need to persist, use a **tmpfs mount** which stores data entirely in RAM and doesn't consume inodes from the overlay filesystem:
+`docker run --tmpfs /app/cache:rw,size=512m myapp`
+Alternatively, if the cache needs disk backing, mount a dedicated volume (`-v cache-vol:/app/cache`) that has its own independent inode table separate from the container's root filesystem.
+
+---
+
+**Q83. [L2] Your company has a local Docker registry, a staging registry on GCP Artifact Registry, and a production registry on AWS ECR. A developer complains about constantly running `docker login` and `docker logout` to switch between them. What is the cleaner approach?**
+
+> *What the interviewer is testing:* Docker context and credential helpers.
+
+**Answer:**
+Docker stores credentials per registry in `~/.docker/config.json`, and you do NOT need to log out of one registry to use another. Each `docker login <registry-url>` adds a separate credential entry. You can push and pull from multiple registries simultaneously without switching.
+However, for managing different Docker *daemon endpoints* (local vs. remote hosts), use **Docker Contexts**:
+`docker context create staging --docker "host=tcp://staging-host:2376"` then `docker context use staging`.
+For the credential management side, configure **credential helpers** (`docker-credential-ecr-login` for AWS, `docker-credential-gcr` for GCP) in `config.json` so authentication tokens auto-refresh without manual `docker login` at all.
+
+---
+
+**Q84. [L2] A containerized microservice makes HTTP calls to `api.example.com`. It works perfectly when tested locally on a developer laptop, but fails with DNS resolution errors when deployed inside a Docker container on the CI server. The CI server itself can resolve the domain fine. What is wrong?**
+
+> *What the interviewer is testing:* Container DNS resolution, Docker's embedded DNS server.
+
+**Answer:**
+Docker containers on user-defined networks use Docker's embedded DNS server (`127.0.0.11`). On the default bridge network, containers inherit the host's `/etc/resolv.conf`. However, if the host uses `127.0.0.53` (systemd-resolved's stub resolver), Docker copies this into the container where it's meaningless because the container cannot reach the host's loopback address.
+*Fix:* Explicitly configure DNS for the container or Docker daemon:
+- Per container: `docker run --dns 8.8.8.8 myapp`
+- Globally in `/etc/docker/daemon.json`: `{"dns": ["8.8.8.8", "8.8.4.4"]}`
+- Or switch the CI server's systemd-resolved to expose on a real interface rather than the loopback stub.
+
+---
+
+**Q85. [L3] After months of daily Docker builds, your production server's disk is full. You run `docker system prune -af` and reclaim some space, but the disk is still 90% full. `docker system df` shows minimal usage. Where is the hidden disk consumption?**
+
+> *What the interviewer is testing:* overlay2 layer directory orphans, `/var/lib/docker` internals.
+
+**Answer:**
+`docker system prune` only removes objects tracked by the Docker daemon (images, containers, volumes, build cache). If the Docker daemon crashed or was force-killed during container operations, orphaned layer directories can accumulate in `/var/lib/docker/overlay2/` that the daemon no longer tracks.
+*Diagnosis:* Run `du -sh /var/lib/docker/overlay2/` and compare with `docker system df`. A large discrepancy confirms orphaned layers.
+*Fix:* The safest approach is to stop the Docker daemon (`systemctl stop docker`), back up any critical volumes, and reset the storage entirely (`rm -rf /var/lib/docker`). Restarting Docker recreates the directory structure. Re-pull needed images. For prevention, ensure the Docker daemon shuts down gracefully and monitor `/var/lib/docker` disk usage independently.
+
+---
+
+**Q86. [L3] Your security team mandates that Docker must run without root privileges on all developer workstations. The developers still need full Docker build and run capabilities. How do you achieve this?**
+
+> *What the interviewer is testing:* Rootless Docker mode.
+
+**Answer:**
+Use **Rootless Docker**, which runs the Docker daemon and all containers entirely within a user's namespace without requiring root privileges on the host.
+Installation: `dockerd-rootless-setuptool.sh install` (ships with Docker 20.10+). The daemon runs as the user's systemd service, stores data under `~/.local/share/docker/`, and maps UIDs using `newuidmap`/`newgidmap` (requires `/etc/subuid` and `/etc/subgid` entries).
+*Limitations:* Cannot bind to privileged ports (<1024) without `CAP_NET_BIND_SERVICE`. `--net=host` doesn't work. Overlay networks require kernel 5.11+ with unprivileged overlay support. Some storage drivers may have reduced performance. Despite these trade-offs, rootless Docker satisfies the security mandate while preserving standard build and run workflows.
+
+---
+
+**Q87. [L2] Your CI pipeline runs unit tests inside a Docker build using a multi-stage Dockerfile. If the tests fail, you want to extract the test report (JUnit XML) from the failed build stage. But `docker build` exits with an error and produces no final image. How do you get the test report out?**
+
+> *What the interviewer is testing:* Multi-stage build targets, `--target` flag.
+
+**Answer:**
+Use the `--target` flag to build only up to the test stage, and structure the Dockerfile so the test report is generated *before* the assertion that causes the build to fail:
+```dockerfile
+FROM golang:1.21 AS test
+COPY . .
+RUN go test -v ./... -count=1 2>&1 | go-junit-report > /report.xml; \
+    go test ./... -count=1
+
+FROM alpine AS runtime
+COPY --from=test /app/binary /app/binary
+```
+Build with: `docker build --target test -o type=local,dest=./output .` using BuildKit's `--output` flag. Even if the full build fails, you can separately export just the test stage output. Alternatively, use `docker create` on the test target image and `docker cp` the report out.
+
+---
+
+**Q88. [L2] A production container running an API gateway is performing well but you notice its writable layer is growing by 500MB per day. The application itself doesn't write data to disk intentionally. What is causing the growth and how do you stop it?**
+
+> *What the interviewer is testing:* Container writable layer, log files, and read-only filesystem.
+
+**Answer:**
+The application or its runtime is writing files to the container's writable layer (the thin read-write layer on top of the image layers). Common culprits: application logs not sent to stdout, temp files, DNS resolver cache, or library-generated cache files.
+*Diagnosis:* Run `docker diff <container>` to see every file added (`A`), changed (`C`), or deleted (`D`) in the writable layer since the container started.
+*Fix:* 
+1. Redirect all logs to stdout/stderr instead of files.
+2. Mount writable paths as volumes or tmpfs so writes bypass the container layer.
+3. Run the container with a **read-only root filesystem**: `docker run --read-only --tmpfs /tmp --tmpfs /var/run myapp`. This forces you to explicitly declare every writable path, preventing unexpected layer growth.
+
+---
+
+**Q89. [L3] Your CI pipeline runs Dockerized build jobs that themselves need to build Docker images (Docker-in-Docker). The team currently mounts the host Docker socket (`/var/run/docker.sock`). The security team rejects this. What are the alternatives?**
+
+> *What the interviewer is testing:* Docker-in-Docker alternatives, Kaniko, Buildah.
+
+**Answer:**
+Mounting the Docker socket gives the inner container full root-equivalent access to the host. Secure alternatives:
+1. **Kaniko** — Google's tool that builds container images from a Dockerfile *inside* a container without requiring a Docker daemon. It executes each Dockerfile command in userspace, produces an OCI image, and pushes directly to a registry. Runs unprivileged. Ideal for Kubernetes-based CI (Tekton, GitLab Runner).
+2. **Buildah** — Builds OCI images without a daemon. Can run rootless. Supports Dockerfile syntax and its own native commands.
+3. **Docker-in-Docker (dind)** — Run a full Docker daemon inside a privileged container. More secure than socket mounting (isolated daemon), but still requires `--privileged`. Use only when Kaniko/Buildah can't satisfy the use case.
+4. **BuildKit with remote builder** — Run BuildKit as a separate service and point `docker buildx` at it remotely: `docker buildx create --driver remote --name mybuilder tcp://buildkit:1234`.
+
+---
+
+**Q90. [L2] A container running Nginx generates enormous log files and eventually fills the disk on the Docker host. You want Docker to automatically handle log rotation without modifying the Nginx configuration. How?**
+
+> *What the interviewer is testing:* Docker logging driver configuration, log rotation.
+
+**Answer:**
+Docker's default `json-file` logging driver stores container stdout/stderr as JSON files under `/var/lib/docker/containers/<id>/`. Without limits, these files grow unbounded.
+Configure log rotation at the container level:
+```bash
+docker run --log-opt max-size=50m --log-opt max-file=5 nginx
+```
+Or set it globally in `/etc/docker/daemon.json`:
+```json
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "50m",
+    "max-file": "5"
+  }
+}
+```
+This rotates logs at 50MB per file and keeps a maximum of 5 rotated files (250MB total per container). For Docker Compose, use the `logging:` key under each service. Note: changing the global config only affects *newly created* containers, not existing ones.
+
+---
+
+**Q91. [L3] You deploy a financial application container and the compliance team requires that the container's filesystem must be completely immutable at runtime — no process should be able to write anywhere except explicitly approved paths. How do you enforce this?**
+
+> *What the interviewer is testing:* Read-only root filesystem, defense-in-depth.
+
+**Answer:**
+Use the `--read-only` flag to make the entire root filesystem read-only:
+```bash
+docker run --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,size=100m \
+  --tmpfs /var/run:rw,size=10m \
+  -v logs-vol:/var/log \
+  myfinancialapp
+```
+With `--read-only`, any write attempt to an unmounted path returns a "Read-only file system" error. You explicitly whitelist writable paths using `tmpfs` (ephemeral, in-memory) or named volumes (persistent). The `noexec` and `nosuid` flags on tmpfs add additional hardening.
+In Kubernetes, set `readOnlyRootFilesystem: true` in the `securityContext`. Combine this with `allowedHostPaths` in PodSecurityPolicy or a Kyverno/OPA policy to restrict volume mounts. This approach follows the principle of least privilege and prevents attackers from writing backdoor binaries even if they compromise the application.
+
+---
+
+**Q92. [L3] Your team wants to implement live migration of a running Docker container from one host to another without stopping it, similar to VM live migration. Is this possible with Docker? What technology enables it?**
+
+> *What the interviewer is testing:* CRIU (Checkpoint/Restore in Userspace), container migration limitations.
+
+**Answer:**
+Docker has experimental support for **checkpoint and restore** using **CRIU (Checkpoint/Restore In Userspace)**. CRIU freezes a running process, serializes its entire state (memory, registers, open files, sockets, timers) to disk, and can restore it later — even on a different host.
+Workflow:
+1. Checkpoint: `docker checkpoint create <container> checkpoint1`
+2. Transfer the checkpoint data and container filesystem to the target host.
+3. Restore: `docker start --checkpoint checkpoint1 <container>`
+
+*Limitations:* This feature is experimental and not production-ready. Open network connections break (TCP state doesn't survive cross-host migration). External storage must be shared (e.g., NFS). GPU state, complex IPC, and certain kernel features aren't fully supported. For production workloads, Kubernetes pod rescheduling with graceful shutdown/startup is the practical alternative.
+
+---
+
+**Q93. [L2] A developer has a project with a 10GB `data/` directory containing training datasets. Every `docker build` takes 15 minutes before even executing the first Dockerfile instruction. The Dockerfile doesn't reference the `data/` directory at all. Why is it so slow?**
+
+> *What the interviewer is testing:* Docker build context transfer, `.dockerignore`.
+
+**Answer:**
+Before executing any Dockerfile instruction, Docker packages the entire **build context** (the directory passed to `docker build`) and transfers it to the Docker daemon. If the `data/` directory is inside the build context, Docker transfers all 10GB every single build — even though no `COPY` or `ADD` references it.
+The "Sending build context to Docker daemon... 10GB" message in the build output confirms this.
+*Fix:* Add `data/` to `.dockerignore`:
+```
+data/
+*.csv
+*.parquet
+__pycache__/
+.git/
+```
+This reduces the build context to only the files the Dockerfile actually needs. Alternatively, restructure the project so the Dockerfile lives in a subdirectory without the data, or use BuildKit's ability to specify individual files via `--build-context`.
+
+---
+
+**Q94. [L2] Your Docker Compose file defines 15 services, but during local development, you only need 4 of them running. Starting all 15 wastes resources and slows down your machine. How do you selectively start subsets of services without maintaining multiple Compose files?**
+
+> *What the interviewer is testing:* Docker Compose profiles.
+
+**Answer:**
+Use **Compose Profiles** (introduced in Docker Compose v1.28):
+```yaml
+services:
+  api:
+    image: myapi
+    # No profile = always starts
+
+  worker:
+    image: myworker
+    profiles: ["full", "backend"]
+
+  ml-engine:
+    image: ml-engine
+    profiles: ["full", "ml"]
+
+  monitoring:
+    image: grafana
+    profiles: ["full", "debug"]
+```
+Services without a `profiles` key always start. Services with profiles only start when that profile is explicitly activated:
+- `docker compose up` — starts only services without profiles (api).
+- `docker compose --profile backend up` — starts api + worker.
+- `docker compose --profile full up` — starts everything.
+
+This is cleaner than `docker compose up service1 service2` because profiles logically group related services and can be combined.
+
+---
+
+**Q95. [L2] A containerized application needs to call an API server running directly on the Docker host machine (not in a container). Using `localhost` or `127.0.0.1` from inside the container doesn't work. How does the container reach the host?**
+
+> *What the interviewer is testing:* Container-to-host networking, `host.docker.internal`.
+
+**Answer:**
+Inside a container, `localhost` refers to the container's own loopback interface, not the host's. The container and host have separate network namespaces.
+*Solutions:*
+1. **Docker Desktop (Mac/Windows):** Use the special DNS name `host.docker.internal`, which automatically resolves to the host machine's internal IP. Available out of the box.
+2. **Docker Engine on Linux (20.10+):** Add `--add-host=host.docker.internal:host-gateway` to the run command. `host-gateway` is a special string that Docker resolves to the host's gateway IP (typically `172.17.0.1`).
+3. **Docker Compose:**
+```yaml
+services:
+  app:
+    image: myapp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+```
+4. **`--network=host`** mode eliminates the network namespace boundary entirely, but sacrifices container isolation.
+
+---
+
+**Q96. [L2] Your CI pipeline suddenly starts failing with "toomanyrequests: You have reached your pull rate limit" errors when pulling base images from Docker Hub. What is happening and how do you fix it?**
+
+> *What the interviewer is testing:* Docker Hub rate limits, registry mirrors.
+
+**Answer:**
+Docker Hub enforces pull rate limits: anonymous users get 100 pulls per 6 hours per IP, authenticated free users get 200. CI servers sharing a single public IP exhaust this quickly.
+*Fixes:*
+1. **Authenticate:** `docker login` with a Docker Hub account in CI — doubles the limit and tracks per-account instead of per-IP.
+2. **Docker Hub Pro/Team subscription** — removes rate limits entirely.
+3. **Registry Mirror/Proxy Cache:** Set up a pull-through cache using a local registry: `docker run -d -e REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io registry:2`. Configure the Docker daemon to use this mirror in `/etc/docker/daemon.json`: `{"registry-mirrors": ["http://localhost:5000"]}`. Subsequent pulls hit the local cache.
+4. **Copy base images** to your private registry (ECR/GCR/ACR) and reference them from there. This completely eliminates Docker Hub dependency.
+
+---
+
+**Q97. [L3] You need to verify whether a Docker image tagged `myapp:v2.1.0` in your registry is truly a multi-architecture image that supports both `linux/amd64` and `linux/arm64`, without pulling the entire image. How do you inspect this remotely?**
+
+> *What the interviewer is testing:* OCI image manifests, manifest lists, `docker manifest inspect`.
+
+**Answer:**
+Use `docker manifest inspect` to query the registry's manifest list without downloading any image layers:
+```bash
+docker manifest inspect myregistry.com/myapp:v2.1.0
+```
+For a multi-arch image, this returns a **manifest list** (also called a "fat manifest") containing multiple entries — one per platform. Each entry specifies the `architecture`, `os`, and a digest pointing to the platform-specific image manifest.
+If the image is single-architecture, the command returns a single image manifest with layer digests instead of a list.
+You can also use tools like **crane** (from Google's go-containerregistry):
+```bash
+crane manifest myregistry.com/myapp:v2.1.0 | jq '.manifests[].platform'
+```
+Or **skopeo**: `skopeo inspect --raw docker://myregistry.com/myapp:v2.1.0 | jq .`
+These tools query the registry API directly, never downloading image layers.
+
+---
+
+**Q98. [L2] You run a shell script as the ENTRYPOINT that spawns multiple background worker processes. When you `docker stop` the container, it always takes exactly 10 seconds (the timeout) before stopping, and the workers don't clean up properly. What is the root cause?**
+
+> *What the interviewer is testing:* Signal handling, PID 1 behavior, `exec` in entrypoint scripts.
+
+**Answer:**
+When Docker sends `SIGTERM` via `docker stop`, it delivers the signal to PID 1 inside the container. If PID 1 is a shell script (`/bin/sh` or `/bin/bash`), the shell does NOT forward signals to its child processes by default. The shell itself ignores `SIGTERM`, so nothing happens for 10 seconds until Docker sends `SIGKILL`.
+*Fixes:*
+1. **Use `exec`** to replace the shell with the main process: the last line of your entrypoint script should be `exec ./my-worker` instead of `./my-worker`. This makes the worker PID 1 and it receives `SIGTERM` directly.
+2. **Trap signals** in the shell script if you must manage multiple processes:
+```bash
+#!/bin/bash
+trap 'kill $(jobs -p); wait' SIGTERM SIGINT
+./worker1 &
+./worker2 &
+wait
+```
+3. **Use `--init`** flag (`docker run --init`) to inject `tini` as PID 1, which properly forwards signals and reaps zombie processes.
+
+---
+
+**Q99. [L2] After a container has been running for several days, you want to see exactly what files were added, modified, or deleted inside the container compared to its original image. How do you do this without stopping the container?**
+
+> *What the interviewer is testing:* `docker diff`, container writable layer inspection.
+
+**Answer:**
+Use `docker diff <container>` to inspect the container's writable layer against its base image:
+```bash
+docker diff my-running-container
+```
+Output uses three markers:
+- `A` — Added (file didn't exist in the image)
+- `C` — Changed (file was modified)
+- `D` — Deleted (file existed in image but was removed)
+
+Example output:
+```
+C /var/log
+A /var/log/app.log
+C /tmp
+A /tmp/cache-abc123
+D /etc/original-config.bak
+```
+This is invaluable for debugging unexpected disk growth, verifying that containers aren't writing to unexpected locations, and auditing what a compromised container may have modified. Combine with `--read-only` root filesystem to prevent unexpected mutations in the first place.
+
+---
+
+**Q100. [L2] You have two containers on the same Docker network. Container A needs to reach Container B, but Container B's name is a long auto-generated string like `project_backend_service_1`. You want a shorter, more memorable hostname. How do you assign one without renaming the container?**
+
+> *What the interviewer is testing:* Docker network aliases, DNS in user-defined networks.
+
+**Answer:**
+Use **network aliases** to assign additional DNS names to a container on a specific network:
+```bash
+docker network create app-net
+docker run -d --network app-net --network-alias backend myapp-backend
+docker run -d --network app-net myapp-frontend
+```
+Now `myapp-frontend` can reach the backend using simply `backend` as the hostname, regardless of the actual container name.
+In Docker Compose, network aliases are configured under the `networks` key:
+```yaml
+services:
+  project_backend_service:
+    image: mybackend
+    networks:
+      app-net:
+        aliases:
+          - backend
+          - api
+```
+Multiple aliases can be assigned, and multiple containers can share the same alias (Docker's embedded DNS round-robins between them — useful for simple load balancing). Aliases are scoped to the network, so the same alias can mean different things on different networks.
+
+---
+
 *More Docker scenarios added periodically. PRs welcome.*
