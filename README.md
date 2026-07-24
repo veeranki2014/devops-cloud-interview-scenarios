@@ -1,6 +1,6 @@
 # 🚀 DevOps & Cloud — Scenario-Based Interview Questions
 
-> **840 real-world scenario questions with plain-language answers** — covering Kubernetes, AWS, CI/CD, Terraform, Docker, Linux/SRE, Observability, Networking, Security, and Git.
+> **873 real-world scenario questions with plain-language answers** — covering Kubernetes, AWS, CI/CD, Terraform, Docker, Linux/SRE, Observability, Networking, Security, and Git.
 
 This repo was built as a study companion for DevOps and Cloud engineers preparing for interviews at all levels. The focus is on **scenario-based questions** — the kind where an interviewer describes a real situation and asks *"what would you do?"* — because that's how mid-to-senior interviews actually work.
 
@@ -17,7 +17,7 @@ devops-cloud-interview-scenarios/
 ├── 🔄 ci-cd/scenarios.md               100 questions
 ├── 🏗️ terraform/scenarios.md           100 questions
 ├── 🐳 docker/scenarios.md              100 questions
-├── 🐧 linux-sre/scenarios.md           47 questions
+├── 🐧 linux-sre/scenarios.md           80 questions
 ├── 📊 observability/scenarios.md       47 questions
 ├── 🌐 networking/scenarios.md          46 questions
 ├── 🔒 security/scenarios.md            40 questions
@@ -38,7 +38,7 @@ devops-cloud-interview-scenarios/
 | 🔄 [CI/CD](./ci-cd/scenarios.md) | Pipelines, GitOps, deployments, testing, secret management | 100 |
 | 🏗️ [Terraform](./terraform/scenarios.md) | State management, modules, locking, imports, best practices | 100 |
 | 🐳 [Docker](./docker/scenarios.md) | Images, containers, networking, multi-stage builds, security | 100 |
-| 🐧 [Linux / SRE](./linux-sre/scenarios.md) | System administration, performance tuning, incident response | 47 |
+| 🐧 [Linux / SRE](./linux-sre/scenarios.md) | System administration, performance tuning, incident response | 80 |
 | 📊 [Observability](./observability/scenarios.md) | Monitoring, logging, metrics, tracing, alerting | 47 |
 | 🌐 [Networking](./networking/scenarios.md) | VPCs, security groups, routing, DNS, load balancing | 46 |
 | 🔒 [Security](./security/scenarios.md) | IAM, secrets, encryption, compliance, supply chain | 40 |
@@ -55,7 +55,7 @@ We also built a **companion website** so you can browse the same material in a b
 
 **Features**
 
-- 🔍 Search across **840+** scenarios instantly
+- 🔍 Search across **873+** scenarios instantly
 - 📊 Difficulty levels: **L1** (Fresher), **L2** (Mid), **L3** (Senior)
 - 🗂️ **11 domains** — Kubernetes, AWS, Terraform, CI/CD, Docker, Linux/SRE, Observability, Networking, Security, Git, and more
 - 🔖 Bookmarks for last-minute review
@@ -71,7 +71,7 @@ After that, we shipped an **Android app** that packages the same scenario Q&A fo
 
 **Features**
 
-- 🔍 Search across **840+** scenarios instantly — offline
+- 🔍 Search across **873+** scenarios instantly — offline
 - 📊 Difficulty levels: **L1** (Fresher), **L2** (Mid), **L3** (Senior)
 - 🗂️ **11 domains** — Kubernetes, AWS, Terraform, CI/CD, Docker, Linux/SRE, Observability, Networking, Security, Git, and more
 - 🔖 Bookmarks for last-minute review
