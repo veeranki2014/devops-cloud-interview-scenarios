@@ -68,7 +68,7 @@ resource "aws_s3_bucket" "a" {
   bucket   = "my-bucket-a"
 }
 ```
-
+```
 Better approach at scale: **separate Terraform root modules per account**. Each module has its own state file, backend config, and runs independently. Avoid cross-account state dependencies — they create tight coupling.
 infra/
 ├── modules/                      # reusable, account-agnostic building blocks
@@ -100,6 +100,7 @@ infra/
 │       ├── main.tf
 │       └── terraform.tfvars
 Use Terragrunt to DRY (Don't Repeat Yourself) across multiple root modules.
+```
 
 ---
 
