@@ -70,7 +70,35 @@ resource "aws_s3_bucket" "a" {
 ```
 
 Better approach at scale: **separate Terraform root modules per account**. Each module has its own state file, backend config, and runs independently. Avoid cross-account state dependencies — they create tight coupling.
-
+infra/
+├── modules/                      # reusable, account-agnostic building blocks
+│   ├── vpc/
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   ├── ecs-service/
+│   └── rds-postgres/
+│
+├── accounts/
+│   ├── prod/
+│   │   ├── backend.tf            # state config — unique key per account
+│   │   ├── providers.tf          # assume_role into prod account
+│   │   ├── main.tf               # calls modules with prod-specific values
+│   │   ├── variables.tf
+│   │   └── terraform.tfvars
+│   │
+│   ├── staging/
+│   │   ├── backend.tf
+│   │   ├── providers.tf
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── terraform.tfvars
+│   │
+│   └── shared/                   # e.g. Route53, central IAM, log archiving
+│       ├── backend.tf
+│       ├── providers.tf
+│       ├── main.tf
+│       └── terraform.tfvars
 Use Terragrunt to DRY (Don't Repeat Yourself) across multiple root modules.
 
 ---
