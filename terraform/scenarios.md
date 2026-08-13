@@ -70,6 +70,8 @@ resource "aws_s3_bucket" "a" {
 ```
 
 Better approach at scale: **separate Terraform root modules per account**. Each module has its own state file, backend config, and runs independently. Avoid cross-account state dependencies — they create tight coupling.
+
+````
 infra/
 ├── modules/                      # reusable, account-agnostic building blocks
 │   ├── vpc/
@@ -99,9 +101,8 @@ infra/
 │       ├── providers.tf
 │       ├── main.tf
 │       └── terraform.tfvars
-Use Terragrunt to DRY (Don't Repeat Yourself) across multiple root modules.
-```
-```
+````
+---
 **Why separate state per account matters**
 
 **Blast radius isolation** — a bad apply in staging literally cannot touch prod resources, because Terraform doesn't 
@@ -113,7 +114,8 @@ Scoped permissions — your CI/CD role for the staging directory doesn't need an
 AWS account at all.
 **Independent versioning of changes** — you can plan/apply prod on a different cadence than staging 
 (e.g., promote through staging first, then prod after approval).
-```
+
+Use Terragrunt to DRY (Don't Repeat Yourself) across multiple root modules.
 
 ---
 
