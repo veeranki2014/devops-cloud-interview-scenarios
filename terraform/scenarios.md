@@ -101,6 +101,18 @@ infra/
 │       └── terraform.tfvars
 Use Terragrunt to DRY (Don't Repeat Yourself) across multiple root modules.
 ```
+**Why separate state per account matters**
+
+**Blast radius isolation** — a bad apply in staging literally cannot touch prod resources, because Terraform doesn't 
+even know prod's state exists when you're working in the staging directory.
+**Independent locking** — someone running apply in prod won't block someone working in staging (each state file has 
+its own lock in DynamoDB or equivalent).
+**Smaller, faster plans** — Terraform only has to reconcile the resources in that one account, not all three.
+Scoped permissions — your CI/CD role for the staging directory doesn't need any access to prod's state bucket or prod's 
+AWS account at all.
+**Independent versioning of changes** — you can plan/apply prod on a different cadence than staging 
+(e.g., promote through staging first, then prod after approval).
+```
 
 ---
 
