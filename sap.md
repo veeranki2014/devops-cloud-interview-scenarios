@@ -73,6 +73,7 @@ Real examples I've written/enforced:
 
 Sentinel policies inspect the `tfplan` import, so they see the **planned state**, not just the HCL — meaning they catch issues even when values come from data sources or modules.
 
+
 *(Note: If the org uses open-source Terraform instead of TFC/TFE, the equivalent is OPA/Conftest or `tfsec`/`checkov` in the CI pipeline — worth mentioning if asked about alternatives.)*
 
 ---

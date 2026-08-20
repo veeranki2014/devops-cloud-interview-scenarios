@@ -26,6 +26,10 @@ Prevention — **state locking**:
 - Use an S3 backend with DynamoDB locking: Terraform writes a lock entry to DynamoDB before applying. If another apply is running, the lock is already taken and the second apply waits or fails.
 - Terraform Cloud/HCE automatically handles locking.
 - Never use local state files for team work — they can't be locked.
+- Terraform commands that acquire the lock -**Plan, refresh-only, apply, destroy, import, state mv/rm/push and taint/untaint** 
+- Basically anything that reads and writes state acquire the lock on state file.
+- we can bypass lock using **-lock=false**
+- To manually clear a stuck lock, we can use **terraform force-unlock <LOCK_ID>**
 
 Best practice: Run Terraform only from CI/CD pipelines, never from developer laptops directly. The pipeline enforces sequential execution.
 
