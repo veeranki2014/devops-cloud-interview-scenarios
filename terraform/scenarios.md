@@ -278,6 +278,31 @@ terraform import aws_instance.my_server i-1234567890abcdef0
 3. Run `terraform plan` — it will show diffs between your config and the actual resource.
 4. Fix the config to match reality until `plan` shows no changes.
 
+**For Example**
+```
+provider "aws" {
+  region = "us-east-1"
+}
+
+resource "aws_instance" "my_server" {
+  ami           = "ami-0123456789abcdef0"
+  instance_type = "t3.micro"
+
+  tags = {
+    Name = "my-server"
+  }
+}
+terraform init
+terraform import aws_instance.my_server i-1234567890abcdef0
+terraform plan
+
+What each value means:
+- aws_instance — Terraform’s AWS EC2 resource type
+- my_server — the resource name in your .tf file
+- i-1234567890abcdef0 — the existing EC2 instance ID
+
+```
+
 For large-scale imports: **Terraformer** or **tf-import** can auto-generate Terraform code from existing AWS resources.
 
 New in Terraform 1.5: `import` blocks in configuration files — declarative import as code.
