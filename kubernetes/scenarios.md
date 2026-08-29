@@ -407,6 +407,8 @@ Use cases:
 3. Test DNS from inside a pod: `kubectl exec -it <pod> -- nslookup kubernetes.default` — this should always resolve.
 4. Check `resolv.conf` inside the pod: `kubectl exec -it <pod> -- cat /etc/resolv.conf` — should point to the cluster DNS IP.
 5. Check CoreDNS ConfigMap: `kubectl get configmap coredns -n kube-system -o yaml` — misconfigured forwarders can break external DNS resolution.
+6. Check NetworkPolicies for `port-53` block.
+7. Check `CNI/Node health and kube-proxy` if Service IP fails but pod IP works directly.
 
 ---
 
@@ -427,10 +429,12 @@ Think of PV as the actual parking spot and PVC as the parking ticket that reserv
 **Q29. [L2] A PVC is stuck in `Pending` state. What do you check?**
 
 **Answer:**
-1. **No matching PV** — check if a PV exists with matching `storageClassName`, `accessMode`, and enough capacity: `kubectl get pv`.
+1. **kubectl describe pvc--> Read the events**
+2. **No matching PV** — check if a PV exists with matching `storageClassName`, `accessMode`, and enough capacity: `kubectl get pv`.
 2. **StorageClass doesn't exist** — `kubectl get storageclass`. If the PVC references a storage class that doesn't exist, it stays Pending.
 3. **Dynamic provisioner not working** — if using dynamic provisioning (like AWS EBS CSI driver), check if the CSI driver pods are running: `kubectl get pods -n kube-system | grep csi`.
 4. **Volume binding mode** — if the StorageClass has `volumeBindingMode: WaitForFirstConsumer`, the PVC stays Pending until a pod that uses it is scheduled. That's normal behavior.
+5. Check `RESOURCEQUOTA` and cloud-side quota/AZ constraints.
 
 ---
 
